@@ -1,0 +1,42 @@
+# NOTE: git does not allow comments on the same line as a pattern, so each comment sits above its pattern.
+
+# --- Secrets: never commit real credentials ---
+# Local environment file holding T212_API_KEY / T212_API_SECRET
+.env
+# Any variant such as .env.live or .env.demo
+.env.*
+# ...except the template, which contains no secrets
+!.env.example
+
+# --- Kill switch marker file (local runtime state, not source code) ---
+KILL_SWITCH
+
+# --- Python build/runtime artefacts ---
+# Compiled bytecode
+__pycache__/
+*.py[cod]
+# Local virtual environments
+.venv/
+venv/
+# Tool caches and coverage output
+.pytest_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+
+# --- Data, databases and generated output ---
+# Downloaded market data (often licensed; must not be redistributed)
+data_cache/
+# Local SQLite databases (orders, positions, P&L)
+*.sqlite
+*.db
+# Structured log output
+logs/
+# Generated backtest/research reports; keep the empty folder itself
+reports/*
+!reports/.gitkeep
+
+# --- Editor / OS noise ---
+.idea/
+.vscode/
+.DS_Store

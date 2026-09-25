@@ -1,0 +1,163 @@
+# =====================================================================================
+# stockTradeBot — PRE-REGISTERED settings (Phase 1 draft; see docs/PHASE1_SPECIFICATION.md)
+# Values here are fixed BEFORE any backtest is run. Changing them after seeing results
+# must be recorded in reports/trials.csv so the overfitting (Deflated Sharpe) count is honest.
+# Secrets never go in this file — they come from environment variables (.env).
+# =====================================================================================
+
+mode:
+  default: PAPER                     # the bot always falls back to PAPER unless both live env flags are set
+  dry_run_default: true              # compute/log orders without sending them until explicitly disabled
+
+broker:
+  name: trading212                   # execution venue (execution only; NOT a market-data source)
+  base_url_demo: https://demo.trading212.com/api/v0   # paper-trading environment (official)
+  base_url_live: https://live.trading212.com/api/v0   # real-money environment (official) — gated
+  allowed_account_types: [INVEST, ISA]                # anything else => refuse to start
+  request_timeout_seconds: 10        # HTTP timeout; a timed-out ORDER is treated as UNKNOWN, never retried blindly
+  quantity_step: 1.0                 # whole shares until fractional precision is verified in demo
+  max_pending_orders_per_ticker: 50  # documented broker functional limit (we use far fewer)
+
+account:
+  base_currency: GBP                 # account currency; all risk is measured in this currency
+
+benchmark:
+  symbol: SPY                        # broad US benchmark for relative strength and market regime
+  use_total_return: true             # dividends included, so the comparison is fair
+
+universe:
+  research_source: point_in_time_index   # historical constituents incl. delisted names (vendor-dependent)
+  min_price_usd: 10.0                # unadjusted close must be at least $10 (no penny stocks)
+  min_market_cap_usd: 5.0e9          # applied only if point-in-time market cap is available
+  min_adv_usd: 2.0e7                 # 60-day average dollar volume >= $20m
+  adv_window_days: 60                # look-back for average dollar volume
+  min_history_days: 273              # 252 for 12-month momentum + buffer
+  min_universe_size: 50              # if fewer eligible stocks, skip the day (ranks unreliable)
+  allowed_security_types: [STOCK]    # Trading 212 instrument type; excludes ETF, WARRANT, CFD-like types
+  instrument_currency: USD           # US-listed shares only
+  exclude_adrs: true                 # keep the first test to US domestic common stock
+
+signals:
+  lookbacks_days: {m3: 63, m6: 126, m9: 189, m12: 252}   # trading-day look-backs to compare
+  skip_recent_days: 21               # classic 12-1: skip the most recent month (short-term reversal)
+  primary_signal: MOM_12_1           # pre-registered primary signal (classic benchmark)
+  entry_rank_min: 0.80               # enter only if cross-sectional percentile rank >= 0.80
+  exit_rank_below: 0.50              # hysteresis: momentum-deterioration exit (when enabled) below 0.50
+  require_abs_momentum: true         # MOM_12_1 > 0
+  require_relative_strength: true    # RS_12_1 > 0 (stock beat the benchmark)
+
+trend:
+  sma_fast: 50                       # 50-day simple moving average
+  sma_slow: 200                      # 200-day simple moving average
+  variant: T3                        # T0 none | T1 close>SMA200 | T2 SMA50>SMA200 | T3 both
+
+regime:
+  variant: R1                        # R0 none | R1 block new buys in BEAR | R2 halve risk & positions in BEAR
+  sma_days: 200                      # benchmark above/below its 200-DMA defines BULL/BEAR
+
+volatility:
+  atr_period: 14                     # Wilder ATR period
+  max_atr_pct: 0.06                  # skip stocks whose ATR is > 6% of price (extreme volatility)
+
+entry:
+  order_type: LIMIT                  # marketable limit caps the worst entry price -> risk stays <= budget
+  limit_offset_atr: 0.25             # limit = close * (1 + 0.25 * ATR%)
+  time_validity: DAY                 # unfilled entry expires; no chasing
+  breakout_days_options: [20, 50, 60]    # Variant D look-backs (tested, not optimised)
+  pullback_ma_options: [20, 50]          # Variant E moving average for the pullback touch
+
+stops:
+  method: ATR                        # ATR | PERCENT | SWING_LOW
+  atr_multiple: 3.0                  # base; sensitivity {2.0, 2.5, 3.0}
+  percent_options: [0.08, 0.10, 0.12]    # percent-stop variant values
+  swing_low_days: 10                 # swing-low look-back
+  swing_low_atr_buffer: 0.5          # stop sits 0.5 ATR below the swing low
+  max_stop_distance_pct: 0.20        # wider than 20% => reject the trade
+  min_stop_distance_atr: 0.5         # tighter than 0.5 ATR => reject (noise stop)
+  never_widen: true                  # a stop may only move up, never down
+  resting_at_broker: true            # GTC sell-stop protects the position even if the bot is offline
+
+targets:
+  r_multiple: 2.0                    # base target = entry + 2R; sensitivity {2.0, 2.25, 2.5, 3.0}
+  min_planned_rr: 2.0                # reject any setup with planned reward/risk < 2 after costs
+  evaluation: close_then_next_open   # target checked at close; exit order for next session
+
+exits:
+  max_holding_days: 40               # time stop; sensitivity {20, 40, 60}
+  trend_exit_below_sma: 50           # exit if close < SMA50 (tested as a separate add-on)
+  trailing_atr_multiple: 3.0         # chandelier trailing stop variant
+  partial_fraction: 0.5              # partial-profit variant: sell 50% at target, trail the rest
+
+risk:
+  risk_per_trade: 0.005              # 0.5% of equity at worst-case entry, incl. costs
+  max_portfolio_heat: 0.05           # max 5% total open risk
+  heat_definition: current           # current = price-to-stop risk (conservative) | initial
+  max_positions: 10                  # hard cap on concurrent positions
+  max_position_weight: 0.20          # no single name above 20% of equity
+  max_daily_loss: 0.015              # -1.5% day => stop new buys until next day / reset
+  daily_loss_requires_reset: true    # require an explicit reset after the daily limit fires
+  fx_buffer: 0.005                   # 0.5% FX move allowance between sizing and fill
+  stop_slippage: 0.005               # assumed extra slippage when a stop triggers (stop -> market order)
+
+portfolio:
+  max_per_sector: 3                  # sector concentration cap
+  correlation_window_days: 60        # rolling window for daily-return correlation
+  correlation_threshold: 0.75        # "highly correlated" pair threshold (tested +/-0.1 only)
+  max_highly_correlated_holdings: 1  # reject a candidate correlated >0.75 with 2 or more holdings
+  rebalance: DAILY                   # DAILY | WEEKLY (both tested)
+
+events:
+  earnings_blackout_days: 3          # no new entries within 3 trading days before earnings; test {1,2,3,5}
+  unknown_earnings_is_ineligible: true   # missing earnings date => no entry (fail safe)
+  exit_before_earnings: false        # existing positions are not force-sold (separate variant)
+
+costs:                               # re-verify against Trading 212's official pricing before paper and live
+  fx_fee_per_side: 0.0015            # 0.15% FX fee on each GBP<->USD conversion (buy AND sell)
+  commission_per_trade: 0.0          # Trading 212 Invest/ISA: no commission
+  slippage_per_side: 0.0005          # 5 bps spread+impact at the open for large caps (base case)
+  sec_fee_rate_on_sells: 0.0000278   # SEC Section 31 fee (rate changes; configurable)
+  finra_taf_per_share_sold: 0.000195 # FINRA trading activity fee per share sold
+  dividend_withholding: 0.15         # US withholding with W-8BEN
+  cash_interest: 0.0                 # ignore interest on idle cash (conservative)
+  stress:
+    slippage_multipliers: [1, 2, 3]  # cost-sensitivity runs
+    fx_fee_per_side_stress: 0.003    # doubled FX fee scenario
+
+schedule:
+  exchange_timezone: America/New_York    # all trading-day logic uses the exchange calendar
+  local_timezone: Europe/London          # operator timezone (UK/US DST changes differ)
+  decision_time_local: "23:30"           # run after the US close once end-of-day data is final
+
+backtest:
+  start: 2000-01-01                  # as early as clean point-in-time data allows
+  holdout_months: 24                 # final sealed out-of-sample period, run exactly once
+  initial_equity_gbp: 10000          # simulated starting equity
+  delisting_haircut_if_unknown: -0.30    # conservative return if a delisting return is unavailable
+
+walk_forward:
+  train_years: 5                     # training window length
+  validate_years: 1                  # validation window length
+  test_years: 1                      # out-of-sample test window length
+  step_years: 1                      # roll forward one year at a time
+  min_train_trades: 100              # parameter sets with fewer train trades are ineligible
+  selection: neighbourhood_median_sharpe   # rewards stable plateaus, NOT the single best result
+
+monte_carlo:
+  iterations: 10000                  # bootstrap resamples
+  block_size_trades: 20              # block bootstrap keeps losing streaks together
+  block_size_days: 20                # stationary bootstrap mean block for daily returns
+
+acceptance:                          # ALL must pass on out-of-sample results (see spec section 10)
+  min_oos_trades: 200
+  min_expectancy_r: 0.10
+  expectancy_ci_lower_gt_zero: true
+  min_profit_factor: 1.20
+  min_profit_factor_stressed: 1.00
+  max_drawdown: 0.25
+  max_mc_p95_drawdown: 0.35
+  min_deflated_sharpe_prob: 0.90
+  min_positive_test_year_fraction: 0.60
+  max_single_year_profit_share: 0.50
+  min_neighbour_pass_fraction: 0.70
+  max_cost_drag_share: 0.33
+  must_beat_benchmark_risk_adjusted: true
