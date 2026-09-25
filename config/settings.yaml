@@ -15,11 +15,15 @@ broker:
   base_url_live: https://live.trading212.com/api/v0   # real-money environment (official) — gated
   allowed_account_types: [INVEST, ISA]                # anything else => refuse to start
   request_timeout_seconds: 10        # HTTP timeout; a timed-out ORDER is treated as UNKNOWN, never retried blindly
-  quantity_step: 1.0                 # whole shares until fractional precision is verified in demo
+  quantity_step: 0.01                # fractional shares (approved); precision verified by scripts/probe_demo.py
+  auth: auto                         # auto: use T212_API_KEY/SECRET if set, else rely on the hosting proxy
   max_pending_orders_per_ticker: 50  # documented broker functional limit (we use far fewer)
+  min_order_value_gbp: 1.0           # demo-verified: orders below ~GBP 1 are rejected (min-value-exceeded)
 
 account:
   base_currency: GBP                 # account currency; all risk is measured in this currency
+  strategy_capital_gbp: null         # cap on capital the bot manages (null = free cash + bot positions)
+  unmanaged_positions_policy: IGNORE_AND_EXCLUDE  # manual positions: never touched, excluded from strategy equity
 
 benchmark:
   symbol: SPY                        # broad US benchmark for relative strength and market regime
@@ -28,8 +32,8 @@ benchmark:
 universe:
   research_source: point_in_time_index   # historical constituents incl. delisted names (vendor-dependent)
   min_price_usd: 10.0                # unadjusted close must be at least $10 (no penny stocks)
-  min_market_cap_usd: 5.0e9          # applied only if point-in-time market cap is available
-  min_adv_usd: 2.0e7                 # 60-day average dollar volume >= $20m
+  min_market_cap_usd: 5000000000         # applied only if point-in-time market cap is available
+  min_adv_usd: 20000000                 # 60-day average dollar volume >= $20m
   adv_window_days: 60                # look-back for average dollar volume
   min_history_days: 273              # 252 for 12-month momentum + buffer
   min_universe_size: 50              # if fewer eligible stocks, skip the day (ranks unreliable)
@@ -87,6 +91,7 @@ exits:
   trend_exit_below_sma: 50           # exit if close < SMA50 (tested as a separate add-on)
   trailing_atr_multiple: 3.0         # chandelier trailing stop variant
   partial_fraction: 0.5              # partial-profit variant: sell 50% at target, trail the rest
+  addons: []                         # base = stop + target + time exit; test one of TREND|MOMENTUM|TRAILING|PARTIAL|REGIME
 
 risk:
   risk_per_trade: 0.005              # 0.5% of equity at worst-case entry, incl. costs
@@ -108,7 +113,8 @@ portfolio:
 
 events:
   earnings_blackout_days: 3          # no new entries within 3 trading days before earnings; test {1,2,3,5}
-  unknown_earnings_is_ineligible: true   # missing earnings date => no entry (fail safe)
+  unknown_earnings_is_ineligible: true   # LIVE/PAPER: missing earnings date => no entry (fail safe)
+  unknown_earnings_is_ineligible_in_backtest: false  # free historical calendars are incomplete; reported
   exit_before_earnings: false        # existing positions are not force-sold (separate variant)
 
 costs:                               # re-verify against Trading 212's official pricing before paper and live
@@ -126,7 +132,8 @@ costs:                               # re-verify against Trading 212's official 
 schedule:
   exchange_timezone: America/New_York    # all trading-day logic uses the exchange calendar
   local_timezone: Europe/London          # operator timezone (UK/US DST changes differ)
-  decision_time_local: "23:30"           # run after the US close once end-of-day data is final
+  cycle_time_local: "13:00"              # daily cycle BEFORE the US open: DAY orders expire at NY midnight
+  protect_time_local: "15:00"            # after the open: place resting stops for new fills
 
 backtest:
   start: 2000-01-01                  # as early as clean point-in-time data allows
@@ -146,6 +153,9 @@ monte_carlo:
   iterations: 10000                  # bootstrap resamples
   block_size_trades: 20              # block bootstrap keeps losing streaks together
   block_size_days: 20                # stationary bootstrap mean block for daily returns
+
+strategy:
+  primary: C                         # pre-registered primary candidate (MT-1 = momentum + trend + regime)
 
 acceptance:                          # ALL must pass on out-of-sample results (see spec section 10)
   min_oos_trades: 200

@@ -1,0 +1,14 @@
+# Runtime dependencies (tested versions, Python 3.11+)
+pandas==3.0.6            # time-series panels
+numpy==2.4.6             # numerics
+pyyaml==6.0.3            # settings.yaml
+requests==2.34.2         # Trading 212 HTTP client
+scipy==1.17.1            # Deflated Sharpe (normal distribution)
+yfinance==1.7.0          # free Yahoo Finance data adapter (research + daily data)
+exchange_calendars==4.13.2  # NYSE trading calendar
+pyarrow==25.0.1          # parquet data cache
+matplotlib==3.11.2       # report charts
+tabulate==0.10.0         # markdown tables in reports
+# Test-only
+pytest==9.1.1            # test runner
+responses==0.26.3        # mocked HTTP for broker tests
