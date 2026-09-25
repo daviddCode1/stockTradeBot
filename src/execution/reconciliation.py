@@ -119,7 +119,35 @@ def reconcile(repo: Repo, om: OrderManager, positions: list[Position], pending: 
             log_event("RECONCILIATION", "quantity adjusted to broker", ticker=t, local=p.qty, broker=bp.quantity)
             rep.notes.append(f"{t}: qty {p.qty} -> {bp.quantity}")
 
-    # 4. broker positions the bot does not manage (manual trades): flag, never close
+    # 4a. restart recovery: if the local DB was lost, re-adopt positions the BOT opened, identified by an
+    #     API-initiated BUY fill in history AND an API-initiated resting STOP sell at the broker.
+    managed_bt = {p.broker_ticker for p in repo.open_positions().values()}
+    for bp in positions:
+        if bp.broker_ticker in managed_bt or bp.broker_ticker not in broker_to_symbol:
+            continue
+        api_stop = next((o for o in pending if o.broker_ticker == bp.broker_ticker and o.type == "STOP"
+                         and o.side == "SELL" and o.initiated_from == "API" and o.stop_price), None)
+        api_buy = next((o for o in history if o.broker_ticker == bp.broker_ticker and o.side == "BUY"
+                        and o.initiated_from == "API" and o.filled_quantity > 0), None)
+        if api_stop is None or api_buy is None:
+            continue  # not provably ours -> treated as a manual position below
+        sym = broker_to_symbol[bp.broker_ticker]
+        stop = float(api_stop.stop_price)
+        k = float(cfg["targets"]["r_multiple"])
+        entry = float(bp.avg_price)
+        pos = HeldPosition(
+            ticker=sym, qty=min(bp.quantity, api_buy.filled_quantity), entry_px=entry,
+            entry_date=pd.Timestamp((bp.opened_at or api_buy.filled_at or datetime.now(timezone.utc)).date()),
+            stop=stop, initial_stop=stop, target=target_price(entry, stop, k, costs), sector="UNKNOWN",
+            initial_risk_gbp=bp.quantity * max(net_risk_per_share_usd(entry, stop, costs), 0.0) / fx_usd_per_gbp,
+            highest_close=max(entry, bp.current_price), broker_ticker=bp.broker_ticker,
+        )
+        repo.upsert_position(pos, stop_order_id=api_stop.order_id, target_r=k)
+        repo.event("RECONCILIATION", sym, issue="position re-adopted from broker state after local state loss")
+        log_event("RECONCILIATION", "re-adopted bot position from broker state", ticker=sym, stop=stop)
+        rep.notes.append(f"{sym}: re-adopted from broker (API buy + API stop)")
+
+    # 4b. broker positions the bot does not manage (manual trades): flag, never close
     managed_bt = {p.broker_ticker for p in repo.open_positions().values()}
     for bp in positions:
         if bp.broker_ticker not in managed_bt:

@@ -298,3 +298,18 @@ def test_settings_numeric_types():
                 raise AssertionError(f"{path}{k} looks numeric but is a string: {v!r}")
     walk(s)
     assert isinstance(s["universe"]["min_adv_usd"], (int, float)) and s["universe"]["min_adv_usd"] == 20_000_000
+
+
+def test_restart_recovery_readopts_bot_position(cfg):
+    """Local DB lost: an API-bought position with an API stop resting at the broker is re-adopted."""
+    repo = _repo()  # empty database
+    now = datetime.now(timezone.utc)
+    stop = Order("s1", "A_US_EQ", "STOP", "SELL", 3, 0, "NEW", None, 90.0, now, "API")
+    buy = Order("b1", "A_US_EQ", "LIMIT", "BUY", 3, 3, "FILLED", 100.5, None, now, "API", fill_price=100.0, filled_at=now)
+    manual = Position("M_US_EQ", 5, 5, 50, 55, "USD", 200)
+    rep = reconcile(repo, OrderManager(FakeBroker(), repo, False, False), [_pos("A_US_EQ", 3), manual], [stop], [buy],
+                    1.3, cfg, CostModel(), {"A_US_EQ": "A", "M_US_EQ": "M"})
+    pos = repo.open_positions()
+    assert "A" in pos and pos["A"].stop == 90.0 and pos["A"].extra["stop_order_id"] == "s1"
+    assert "M" not in pos and rep.unexpected_positions == ["M_US_EQ"]  # manual stays unmanaged
+    assert not rep.halt_new_orders
